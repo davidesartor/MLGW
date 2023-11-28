@@ -69,7 +69,7 @@ def piecewise_logarithmic(frequencies, psds):
 
 @cache
 def LIGOL():
-    frequencies, psds = np.loadtxt("LIGOLpsd.txt", dtype="double", unpack=True)
+    frequencies, psds = np.loadtxt("LIGOL.txt", dtype="double", unpack=True)
     return piecewise_logarithmic(frequencies, psds)
 
 
