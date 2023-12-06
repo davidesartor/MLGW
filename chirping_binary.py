@@ -42,7 +42,8 @@ class Parameters(NamedTuple):
 def amplitude(times: npt.NDArray[np.floating], parameters: Parameters) -> npt.NDArray[np.floating]:
     tau = (parameters.tcoal_s - times) * (parameters.tcoal_s > times)
     G_Mc_over_c3 = NEWTON_CONST_SIU * parameters.Mc_kg / SPEED_LIGHT_SIU**3
-    return (SPEED_LIGHT_SIU / parameters.r_m) * (G_Mc_over_c3) ** (5 / 4) * (5 / tau) ** (1 / 4)
+    amp =  (SPEED_LIGHT_SIU / parameters.r_m) * (G_Mc_over_c3) ** (5 / 4) * (5 / tau) ** (1 / 4)
+    return np.where(tau > 0, amp, 0)
 
 
 def phase(times: npt.NDArray[np.floating], parameters: Parameters) -> npt.NDArray[np.floating]:
