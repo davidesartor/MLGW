@@ -6,7 +6,7 @@ import noise
 
 
 @dataclass
-class DatasetChirping:
+class LIGOLChirping:
     episode_duration_s: float
     sample_rate_Hz: float
     n_sources: int = 1
@@ -25,8 +25,14 @@ class DatasetChirping:
         return self.episodes_per_epoch
 
     def __getitem__(self, index):
-        parameters = chirping_binary.Parameters.sample(time_range=(0, self.episode_duration_s))
-        source_signal = chirping_binary.h_plus(times=self.times, parameters=parameters)
+        parameters = [
+            chirping_binary.Parameters.sample(time_range=(0, self.episode_duration_s))
+            for _ in range(self.n_sources)
+        ]
+        source_signal = np.stack(
+            [chirping_binary.h_plus(times=self.times, parameters=params) for params in parameters]
+        ).sum(axis=0)
+        print(source_signal.shape)
         noise_signal = noise.generate(self.sample_period_s, len(self.times), noise.LIGOL())
         f, t, psd = scipy.signal.stft(
             source_signal + noise_signal,
