@@ -11,7 +11,8 @@ class LIGOLChirping:
     sample_rate_Hz: float
     n_sources: int = 1
     episodes_per_epoch: int = 1024
-    stft_window_size: int = 32
+    stft_window_size: int | None = None
+    hide_noise: bool = False
 
     @property
     def sample_period_s(self):
@@ -32,12 +33,19 @@ class LIGOLChirping:
         source_signal = np.stack(
             [chirping_binary.h_plus(times=self.times, parameters=params) for params in parameters]
         ).sum(axis=0)
-        print(source_signal.shape)
-        noise_signal = noise.generate(self.sample_period_s, len(self.times), noise.LIGOL())
-        f, t, psd = scipy.signal.stft(
-            source_signal + noise_signal,
-            fs=self.sample_rate_Hz,
-            nperseg=self.stft_window_size,
-            noverlap=self.stft_window_size // 4,
-        )
-        return (np.abs(psd), np.array(parameters))
+        if self.hide_noise:
+            total_signal = source_signal
+        else:
+            noise_signal = noise.generate(self.sample_period_s, len(self.times), noise.LIGOL())
+            total_signal = source_signal + noise_signal
+
+        if self.stft_window_size is None:
+            return total_signal.astype(np.float32), np.array(parameters).astype(np.float32)
+        else:
+            f, t, psd = scipy.signal.stft(
+                total_signal,
+                fs=self.sample_rate_Hz,
+                nperseg=self.stft_window_size,
+                noverlap=self.stft_window_size // 4,
+            )
+        return (np.abs(psd).astype(np.float32)[None, :, :], np.array(parameters).astype(np.float32))

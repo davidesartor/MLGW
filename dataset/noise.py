@@ -1,8 +1,10 @@
 from functools import cache
 import numpy as np
+import jax
+import jax.numpy as jnp
 
 
-def generate(dt, n, colour=None, rng=np.random.default_rng()):
+def generate(rng_key, dt, n, colour=None):
     """Generates uniformly sampled noise of a particular colour.
     Parameters
     ----------
@@ -24,18 +26,18 @@ def generate(dt, n, colour=None, rng=np.random.default_rng()):
     Gaussian white noise.
     """
     # Calculate random frequency components
-    f = np.fft.rfftfreq(n, dt)
-    x_f = rng.normal(0, 0.5, len(f)) + 1j * rng.normal(0, 0.5, len(f))
+    f = jnp.fft.rfftfreq(n, dt)
+    real, imag = 0.5 * jax.random.normal(rng_key, shape=(2, len(f)))
+    x_f = real + 1j * imag
     x_f *= np.sqrt(n / dt)
 
     # Ensure our 0 Hz and Nyquist components are purely real
-    x_f[0] = np.abs(x_f[0])
+    x_f = x_f.at[0].set(jnp.abs(x_f[0]))
     if len(f) % 2 == 0:
-        x_f[-1] = np.abs(x_f[-1])
-
+        x_f = x_f.at[-1].set(jnp.abs(x_f[-1]))
     if colour:
-        x_f *= np.sqrt(colour(f))
-    return np.fft.irfft(x_f)
+        x_f *= jnp.sqrt(colour(f))
+    return jnp.fft.irfft(x_f)
 
 
 def piecewise_logarithmic(frequencies, psds):
@@ -55,22 +57,23 @@ def piecewise_logarithmic(frequencies, psds):
         are set to the PSD of the closest endpoint.
     """
     # Convert to log space
-    log_frequencies = np.log(frequencies)
-    log_psds = np.log(psds)
+    log_frequencies = jnp.log(frequencies)
+    log_psds = jnp.log(psds)
 
     # Create a closure for our colour function that suppresses the warning
     # about np.log(0) (which correctly returns -np.inf anyway)
     def colour(f):
-        with np.errstate(divide="ignore"):
-            return np.exp(np.interp(np.log(f), log_frequencies, log_psds))
+        return jnp.exp(jnp.interp(jnp.log(f), log_frequencies, log_psds))
 
     return colour
 
 
 @cache
-def LIGOL():
-    frequencies, psds = np.loadtxt("LIGOL.txt", dtype="double", unpack=True)
-    psds = psds * 1e-26 # temp fix
+def LIGOL(scale=1.0):
+    frequencies, sqrt_psds = np.loadtxt("LIGOL_noise_psd.txt", dtype="double", unpack=True)
+    psds = (scale * sqrt_psds) ** 2
+
+    psds = psds / 100000  # temporary fix
     return piecewise_logarithmic(frequencies, psds)
 
 
