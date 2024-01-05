@@ -1,4 +1,3 @@
-from functools import partial
 import jax
 import jax.numpy as jnp
 import optax
@@ -9,6 +8,14 @@ def logit_prediction_loss(params, apply_fn, x_batched, y_batched):
     def loss_fn(x, y):
         logits = apply_fn(params, x)
         return optax.softmax_cross_entropy_with_integer_labels(logits, y)
+
+    return jax.vmap(loss_fn)(x_batched, y_batched).mean()
+
+
+def signal_mse_loss(params, apply_fn, x_batched, y_batched):
+    def loss_fn(x, y):
+        out = apply_fn(params, x)
+        return optax.l2_loss(out, y)
 
     return jax.vmap(loss_fn)(x_batched, y_batched).mean()
 

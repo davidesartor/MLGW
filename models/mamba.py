@@ -1,6 +1,7 @@
 import jax
 import jax.numpy as jnp
 import flax.linen as nn
+from .generic import MLP
 
 
 class SSM(nn.Module):
@@ -50,7 +51,7 @@ class MambaBlock(nn.Module):
     def ssm(self, x: jax.Array):
         lenght, channels = x.shape
         x = nn.Dense(2 * channels, use_bias=False)(x)
-        x = SSM(self.state_dim)(x)
+        x = SSM(self.state_dim)(x)  # this is a 1d conv in the paper
         x = nn.silu(x)
         x = SSM(self.state_dim)(x)
         return x

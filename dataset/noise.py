@@ -70,10 +70,10 @@ def piecewise_logarithmic(frequencies, psds):
 
 @cache
 def LIGOL(scale=1.0):
-    frequencies, sqrt_psds = np.loadtxt("LIGOL_noise_psd.txt", dtype="double", unpack=True)
+    frequencies, sqrt_psds = np.loadtxt("dataset/LIGOL_noise_psd.txt", dtype="double", unpack=True)
     psds = (scale * sqrt_psds) ** 2
 
-    psds = psds / 100000  # temporary fix
+    # psds = psds / 100000  # temporary fix
     return piecewise_logarithmic(frequencies, psds)
 
 
