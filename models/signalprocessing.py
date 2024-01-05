@@ -5,6 +5,7 @@ from .mamba import MambaBlock
 
 
 class MambaSP(nn.Module):
+    sample_rate_Hz: float
     state_dim: int
     n_layers: int = 1
 
@@ -12,6 +13,6 @@ class MambaSP(nn.Module):
     def __call__(self, x: jax.Array) -> jax.Array:
         x = x[..., None]
         for _ in range(self.n_layers):
-            x = nn.RMSNorm()(x + MambaBlock(self.state_dim)(x))
+            x = MambaBlock(self.state_dim, self.sample_rate_Hz)(x)
         x = x[..., 0]
         return x

@@ -13,7 +13,7 @@ SOLARMASS_TO_Kg = 1.989e30
 class Parameters(NamedTuple):
     r_Mpc: jax.Array
     Mc_smass: jax.Array
-    theta_rad: jax.Array
+    iota_rad: jax.Array
     tcoal_s: jax.Array
     phi0_rad: jax.Array
 
@@ -29,17 +29,17 @@ class Parameters(NamedTuple):
 def sample_params(rng_key: jax.Array, time_range: tuple[float, float]) -> Parameters:
     rng_subkeys = jax.random.split(rng_key, 6)
     # distance uniform in volume (exlude radius 1e-11 Gpc = approx solar sistem radius)
-    r_Mpc = 4000 * (jax.random.uniform(rng_subkeys[0], minval=1e-11) ** (1 / 3))
+    r_Mpc = 4 * (jax.random.uniform(rng_subkeys[0], minval=1e-10) ** (1 / 3))
     # masses uniform in (25, 100) solar masses
     m1_smass = jax.random.uniform(rng_subkeys[1], minval=25, maxval=100)
     m2_smass = jax.random.uniform(rng_subkeys[2], minval=25, maxval=100)
     Mc_smass = (m1_smass * m2_smass) ** (3 / 5) / (m1_smass + m2_smass) ** (1 / 5)
     # angles uniform in sphere
-    theta_rad = jax.random.uniform(rng_subkeys[3], maxval=jnp.pi)
+    iota_rad = jax.random.uniform(rng_subkeys[3], maxval=jnp.pi)
     phi0_rad = jax.random.uniform(rng_subkeys[4], maxval=2 * jnp.pi)
     # coalescence time uniform in time_range
     tcoal_s = jax.random.uniform(rng_subkeys[5], minval=time_range[0], maxval=time_range[1])
-    return Parameters(r_Mpc, Mc_smass, theta_rad, tcoal_s, phi0_rad)
+    return Parameters(r_Mpc, Mc_smass, iota_rad, tcoal_s, phi0_rad)
 
 
 def amplitude(params: Parameters, times: jax.Array, scale=1.0) -> jax.Array:
@@ -58,13 +58,13 @@ def phase(params: Parameters, times: jax.Array) -> jax.Array:
 def h_cross(params: Parameters, times: jax.Array, scale=1.0) -> jax.Array:
     amp = amplitude(params, times, scale)
     phi = phase(params, times)
-    return amp * jnp.cos(params.theta_rad) * jnp.sin(phi)
+    return amp * jnp.cos(params.iota_rad) * jnp.sin(phi)
 
 
 def h_plus(params: Parameters, times: jax.Array, scale=1.0) -> jax.Array:
     amp = amplitude(params, times, scale)
     phi = phase(params, times)
-    return amp * (1 + jnp.cos(params.theta_rad) ** 2) / 2 * jnp.cos(phi)
+    return amp * (1 + jnp.cos(params.iota_rad) ** 2) / 2 * jnp.cos(phi)
 
 
 @dataclass
@@ -92,6 +92,7 @@ class ChirpingBinary:
 
         noise_signal = noise.generate(rng_key, dt, len(self.times), noise.LIGOL(self.scale))
         noisy_signal = clean_signal + noise_signal
+
         return noisy_signal, clean_signal
 
     def get_batch(self, rng_key: jax.Array, batch_size: int):
