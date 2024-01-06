@@ -29,7 +29,7 @@ class Parameters(NamedTuple):
 def sample_params(rng_key: jax.Array, time_range: tuple[float, float]) -> Parameters:
     rng_subkeys = jax.random.split(rng_key, 6)
     # distance uniform in volume (exlude radius 1e-11 Gpc = approx solar sistem radius)
-    r_Mpc = 4 * (jax.random.uniform(rng_subkeys[0], minval=1e-10) ** (1 / 3))
+    r_Mpc = 40 * (jax.random.uniform(rng_subkeys[0], minval=1e-10) ** (1 / 3))
     # masses uniform in (25, 100) solar masses
     m1_smass = jax.random.uniform(rng_subkeys[1], minval=25, maxval=100)
     m2_smass = jax.random.uniform(rng_subkeys[2], minval=25, maxval=100)
@@ -82,20 +82,25 @@ class ChirpingBinary:
     def sample(self, rng_key: jax.Array):
         dt = 1 / self.sample_rate_Hz
 
-        def get_source(rng_key: jax.Array) -> tuple[Parameters, jax.Array]:
+        def get_source(rng_key: jax.Array) -> tuple[Parameters, jax.Array, jax.Array]:
             params = sample_params(rng_key, time_range=(0, self.episode_duration_s))
-            signal = h_plus(params, self.times, self.scale)
-            return params, signal
+            hp = h_plus(params, self.times, self.scale)
+            hc = h_cross(params, self.times, self.scale)
+            return params, hp, hc
 
-        params, source_signal = jax.vmap(get_source)(jax.random.split(rng_key, self.n_sources))
-        clean_signal = source_signal.sum(axis=0)
+        def get_noise(rng_key: jax.Array) -> jax.Array:
+            return noise.generate(rng_key, dt, len(self.times), noise.LIGOL(self.scale))
 
-        noise_signal = noise.generate(rng_key, dt, len(self.times), noise.LIGOL(self.scale))
+        params, hp, hc = jax.vmap(get_source)(jax.random.split(rng_key, self.n_sources))
+        clean_signal = jnp.stack([hp, hc], axis=-1).sum(axis=0)
+
+        hp_noise, hc_noise = jax.vmap(get_noise)(jax.random.split(rng_key, 2))
+        noise_signal = jnp.stack([hp_noise, hc_noise], axis=-1)
+
         noisy_signal = clean_signal + noise_signal
-
         return noisy_signal, clean_signal
 
     def get_batch(self, rng_key: jax.Array, batch_size: int):
         rng_keys = jax.random.split(rng_key, batch_size)
-        clean_signals, noisy_signals = jax.vmap(self.sample)(rng_keys)
+        noisy_signals, clean_signals = jax.vmap(self.sample)(rng_keys)
         return noisy_signals, clean_signals

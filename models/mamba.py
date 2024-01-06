@@ -4,9 +4,10 @@ import flax.linen as nn
 from .generic import MLP
 
 
-class SSMS4(nn.Module):
+class SSM(nn.Module):
     state_dim: int
     sample_rate: float
+    selective: bool = True
 
     @nn.compact
     def __call__(self, x: jax.Array):
@@ -15,53 +16,49 @@ class SSMS4(nn.Module):
         # initialize A (hungry hungry hippos style)
         Ainit = 1 + jnp.arange(self.state_dim, dtype=jnp.float32)
         A = -jnp.exp(self.param("logA", lambda k: jnp.log(Ainit)))
-        B = self.param("B", nn.initializers.ones, (self.state_dim,))
-        C = self.param("C", nn.initializers.normal(), (self.state_dim,))
+
+        if self.selective:
+            dt = nn.softplus(1 / self.sample_rate + nn.Dense(channels)(x))
+            B = 1 + nn.Dense(self.state_dim)(x)
+            C = nn.Dense(self.state_dim)(x)
+        else:
+            dt = 1 / self.sample_rate * jnp.ones((lenght, channels))
+            B = self.param("B", nn.initializers.ones, (1, self.state_dim))
+            C = self.param("C", nn.initializers.normal(), (1, self.state_dim))
 
         # discretization
-        dt = 1 / self.sample_rate
-        A, B = jnp.exp(A * dt), (jnp.exp(A * dt) - 1) * B / A
+        Adiscr = jnp.exp(jnp.einsum("s, lc->lcs", A, dt))
+        Bdiscr = jnp.exp(jnp.einsum("lcs, ls->lcs", Adiscr - 1, B / A))
 
-        def ssm_scan(h, x):
-            h = jnp.einsum("s, cs->cs", A, h) + jnp.einsum("s, c->cs", B, x)
-            y = jnp.einsum("s, cs->c", C, h)
-            return h, y
+        def ssm_scan(p1, p2):
+            (A1, c1), (A2, c2) = p1, p2
+            return (A2 * A1, c2 + A2 * c1)
 
-        h, x = jax.lax.scan(ssm_scan, jnp.zeros((channels, self.state_dim)), x)
-        return x
+        u = jnp.einsum("lcs, lc->lcs", Bdiscr, x)
+        _, h = jax.lax.associative_scan(ssm_scan, (Adiscr, u))
+        y = jnp.einsum("ls, lcs->lc", C, h)
+        return y
 
 
-class SSMS6(nn.Module):
+class S4Block(nn.Module):
     state_dim: int
     sample_rate: float
 
     @nn.compact
     def __call__(self, x: jax.Array):
         lenght, channels = x.shape
-
-        # initialize A (hungry hungry hippos style)
-        Ainit = 1 + jnp.arange(self.state_dim, dtype=jnp.float32)
-        A = -jnp.exp(self.param("logA", lambda k: jnp.log(Ainit)))
-        B = 1 + nn.Dense(self.state_dim, use_bias=False)(x)
-        C = nn.Dense(self.state_dim, use_bias=False)(x)
-
-        # discretization
-        dt = nn.softplus(nn.Dense(1, bias_init=nn.initializers.constant(1 / self.sample_rate))(x))
-        A, B = jnp.exp(A * dt), (jnp.exp(A * dt) - 1) * B / A
-
-        def ssm_scan(h, state):
-            A, B, C, x = state
-            h = jnp.einsum("s, cs->cs", A, h) + jnp.einsum("s, c->cs", B, x)
-            y = jnp.einsum("s, cs->c", C, h)
-            return h, y
-
-        h, x = jax.lax.scan(ssm_scan, jnp.zeros((channels, self.state_dim)), (A, B, C, x))
+        residual = x
+        x = nn.RMSNorm()(x)
+        x = SSM(self.state_dim, self.sample_rate, selective=False)(x)
+        x = nn.Dense(channels)(x)
+        x = x + residual
         return x
 
 
 class MambaBlock(nn.Module):
     state_dim: int
-    sample_rate: float
+    sample_rate: float = 0.1
+    selective: bool = True
 
     @nn.compact
     def __call__(self, x: jax.Array):
@@ -84,5 +81,5 @@ class MambaBlock(nn.Module):
         x = nn.Dense(2 * channels, use_bias=False)(x)
         x = nn.Conv(2 * channels, kernel_size=(self.state_dim,), padding="CAUSAL")(x)
         x = nn.silu(x)
-        x = SSMS4(self.state_dim, self.sample_rate)(x)
+        x = SSM(self.state_dim, self.sample_rate, self.selective)(x)
         return x

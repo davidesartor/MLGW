@@ -111,6 +111,6 @@ class MambaLM(nn.Module, LanguageModelMixin):
     def __call__(self, x: jax.Array) -> jax.Array:
         x = SequenceEmbedding(self.vocab_size, self.embedding_dim, self.max_context_len)(x)
         for _ in range(self.n_layers):
-            x = MambaBlock(self.state_dim)(x)
+            x = MambaBlock(self.state_dim, sample_rate=1)(x)
         x = nn.Dense(self.vocab_size)(x)
         return x

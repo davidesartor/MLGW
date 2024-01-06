@@ -1,7 +1,7 @@
 import jax
 import jax.numpy as jnp
 import flax.linen as nn
-from .mamba import MambaBlock
+from .mamba import MambaBlock, S4Block
 
 
 class MambaSP(nn.Module):
@@ -11,8 +11,7 @@ class MambaSP(nn.Module):
 
     @nn.compact
     def __call__(self, x: jax.Array) -> jax.Array:
-        x = x[..., None]
         for _ in range(self.n_layers):
-            x = MambaBlock(self.state_dim, self.sample_rate_Hz)(x)
-        x = x[..., 0]
+            # x = MambaBlock(self.state_dim, self.sample_rate_Hz, selective=False)(x)
+            x = S4Block(self.state_dim, self.sample_rate_Hz)(x)
         return x
