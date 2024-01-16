@@ -5,19 +5,6 @@ from .transformer import TransformerBlock
 from .mamba import MambaBlock
 
 
-class SequenceEmbedding(nn.Module):
-    vocab_size: int
-    embedding_dim: int
-    max_context_len: int
-
-    @nn.compact
-    def __call__(self, x: jax.Array):
-        pos = jnp.arange(len(x))[::-1]
-        token_embedding = nn.Embed(self.vocab_size, self.embedding_dim)(x)
-        position_embedding = nn.Embed(self.max_context_len, self.embedding_dim)(pos)
-        return token_embedding + position_embedding
-
-
 class LanguageModelMixin:
     vocab_size: int
     max_context_len: int
@@ -93,7 +80,8 @@ class TransormerLM(nn.Module, LanguageModelMixin):
 
     @nn.compact
     def __call__(self, x: jax.Array) -> jax.Array:
-        x = SequenceEmbedding(self.vocab_size, self.embedding_dim, self.max_context_len)(x)
+        pos_emb = nn.Embed(self.max_context_len, self.embedding_dim)(jnp.arange(len(x))[::-1])
+        x = pos_emb + nn.Embed(self.vocab_size, self.embedding_dim)(x)
         for _ in range(self.n_layers):
             x = TransformerBlock(self.head_size, self.n_heads)(x)
         x = nn.Dense(self.vocab_size)(x)
@@ -109,8 +97,8 @@ class MambaLM(nn.Module, LanguageModelMixin):
 
     @nn.compact
     def __call__(self, x: jax.Array) -> jax.Array:
-        x = SequenceEmbedding(self.vocab_size, self.embedding_dim, self.max_context_len)(x)
+        x = nn.Embed(self.vocab_size, self.embedding_dim)(x)
         for _ in range(self.n_layers):
-            x = MambaBlock(self.state_dim, sample_rate=1)(x)
+            x = MambaBlock(self.state_dim, complex_domain=False, selective=True)(x)
         x = nn.Dense(self.vocab_size)(x)
         return x

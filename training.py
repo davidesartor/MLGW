@@ -15,7 +15,7 @@ def logit_prediction_loss(params, apply_fn, x_batched, y_batched):
 def signal_mse_loss(params, apply_fn, x_batched, y_batched):
     def loss_fn(x, y):
         out = apply_fn(params, x)
-        return optax.l2_loss(out, y)
+        return optax.huber_loss(out, y)
 
     return jax.vmap(loss_fn)(x_batched, y_batched).mean()
 

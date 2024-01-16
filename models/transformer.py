@@ -1,7 +1,6 @@
 import jax
 import jax.numpy as jnp
 import flax.linen as nn
-from .generic import MLP
 
 
 class AttentionHead(nn.Module):
@@ -25,9 +24,17 @@ class MultiAttentionHead(nn.Module):
 
     @nn.compact
     def __call__(self, x: jax.Array):
-        return jnp.concatenate(
-            [AttentionHead(self.channels // self.n_heads)(x) for _ in range(self.n_heads)], axis=-1
+        heads = nn.vmap(
+            AttentionHead,
+            variable_axes={"params": -1},
+            split_rngs={"params": True},
+            in_axes=None,  # type: ignore
+            out_axes=-1,
+            axis_size=self.n_heads,
         )
+        x = heads(self.channels // self.n_heads)(x)
+        x = jnp.reshape(x, (x.shape[0], -1))
+        return x
 
 
 class TransformerBlock(nn.Module):
@@ -36,19 +43,15 @@ class TransformerBlock(nn.Module):
 
     @nn.compact
     def __call__(self, x: jax.Array):
-        x = x + self.attention(x)
-        x = x + self.feedforward(x)
-        return x
+        lenght, channels = x.shape
 
-    def attention(self, x: jax.Array):
-        time, channels = x.shape
-        x = nn.RMSNorm()(x)
-        x = MultiAttentionHead(self.head_size, self.n_heads)(x)
-        x = nn.Dense(channels)(x)
-        return x
+        h = nn.RMSNorm()(x)
+        h = MultiAttentionHead(self.head_size, self.n_heads)(h)
+        h = nn.Dense(channels)(h)
+        x = x + h
 
-    def feedforward(self, x: jax.Array):
-        time, channels = x.shape
-        x = nn.RMSNorm()(x)
-        x = MLP(4 * channels, channels)(x)
-        return x
+        h = nn.RMSNorm()(x)
+        h = nn.Dense(4 * channels)(h)
+        h = nn.gelu(h)
+        h = nn.Dense(channels)(h)
+        return x + h

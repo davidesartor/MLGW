@@ -83,7 +83,9 @@ class ChirpingBinary:
         dt = 1 / self.sample_rate_Hz
 
         def get_source(rng_key: jax.Array) -> tuple[Parameters, jax.Array, jax.Array]:
-            params = sample_params(rng_key, time_range=(0, self.episode_duration_s))
+            params = sample_params(
+                rng_key, time_range=(self.episode_duration_s / 2, self.episode_duration_s)
+            )
             hp = h_plus(params, self.times, self.scale)
             hc = h_cross(params, self.times, self.scale)
             return params, hp, hc
