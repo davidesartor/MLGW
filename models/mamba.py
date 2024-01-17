@@ -1,101 +1,70 @@
-from functools import partial
 from typing import Optional
 import jax
 import jax.numpy as jnp
 import flax.linen as nn
-
-
-def init_A_S4D(key, mode: str, channels: int, state_dim: int):
-    """intialization for diagonal SSM https://arxiv.org/abs/2206.11893"""
-    if mode == "real":
-        A = -1.0 * (1 + jnp.arange(state_dim)) + 0j
-    elif mode == "lin":
-        A = -0.5 + 1j * jnp.arange(state_dim // 2)
-    else:
-        raise ValueError(f"Unknown mode {mode}")
-    A = jnp.broadcast_to(A, (channels, *A.shape))
-    return jnp.log(-A.real), A.imag
+import einops
 
 
 class S6(nn.Module):
     state_dim: int
     complex: bool
-    chunk_size: int = 2048 * 64 * 64
-
-    def get_ssm_params(self, x: jax.Array):
-        lenght, channels = x.shape
-        state_dim = self.state_dim // 2 if self.complex else self.state_dim
-
-        if self.complex:
-            lognegAreal, Aimag = self.param("A", init_A_S4D, "lin", channels, self.state_dim)
-            A = -jnp.exp(lognegAreal) + 1j * Aimag
-        else:
-            lognegAreal, A_imag = self.param("A", self.init_A_S4D, "real", channels)
-            A = -jnp.exp(lognegAreal)
-        B = 1 + nn.Dense(state_dim, param_dtype=A.dtype)(x)
-        C = nn.Dense(state_dim, param_dtype=A.dtype)(x)
-        dt = nn.softplus(jnp.log(jnp.exp(0.01) - 1) + nn.Dense(channels)(nn.Dense(1)(x)))
-
-        # ZOH discretization and prepare scan inputs
-        At = jnp.exp(jnp.einsum("cs, lc->lcs", A, dt))
-        ut = jnp.einsum("lcs, cs, ls, lc->lcs", (At - 1), 1 / A, B, x)
-        Ct = C.reshape((lenght, 1, state_dim))
-
-        return At, ut, Ct
 
     @nn.compact
-    def __call__(self, x: jax.Array):
-        lenght, channels = x.shape
-        At, ut, Ct = self.get_ssm_params(x)
+    def __call__(self, x: jax.Array) -> jax.Array:
+        At, ut, Ct = self.get_discretized_ssm(x)
 
         def aggregate_ssm(step1, step2):
             """fuse two ssm steps into one"""
             (A1, u1), (A2, u2) = step1, step2
             return (A2 * A1, A2 * u1 + u2)
 
-        def scan_chunked_ssm(ht, ssm_chunk):
-            At, ut, Ct = ssm_chunk
-            At, ut = jax.lax.associative_scan(aggregate_ssm, (At, ut))
-            ht = At * ht + ut
-            yt = jnp.einsum("lcs, lcs->lc", Ct, ht)
-            return ht[-1], yt
+        At, ht = jax.lax.associative_scan(aggregate_ssm, (At, ut))
+        y = einops.einsum(Ct, ht, "l c s, l c s -> l c")
+        if self.complex:
+            y = (y + jnp.conjugate(y)).real
+        return y
 
-        # chunk ssm along time axis to limit memory usage
-        max_length = min((lenght, self.chunk_size // (channels * self.state_dim)))
-        At = At.reshape((-1, max_length, *At.shape[1:]))
-        ut = ut.reshape((-1, max_length, *ut.shape[1:]))
-        Ct = Ct.reshape((-1, max_length, *Ct.shape[1:]))
+    def init_A_S4D(self, key, channels: int):
+        """intialization for diagonal SSM https://arxiv.org/abs/2206.11893"""
+        if self.complex:
+            A = -0.5 + 1j * jnp.arange(self.state_dim // 2)
+        else:
+            A = -1.0 * (1 + jnp.arange(self.state_dim)) + 0j
+        A = einops.repeat(A, "state -> channel state", channel=channels)
+        return jnp.log(-A.real), A.imag
 
-        h0 = jnp.zeros_like(At[0, 0, :])
-        ht, y = jax.lax.scan(scan_chunked_ssm, h0, (At, ut, Ct))
-        y = y.reshape((lenght, channels))
+    def get_discretized_ssm(self, x: jax.Array) -> tuple[jax.Array, jax.Array, jax.Array]:
+        lenght, channels = x.shape
+        lognegAreal, Aimag = self.param("A", self.init_A_S4D, channels)
+        A = -jnp.exp(lognegAreal) + (1j * Aimag if self.complex else 0.0)
+        B = nn.Dense(A.shape[-1], param_dtype=A.dtype)(x)
+        C = nn.Dense(A.shape[-1], param_dtype=A.dtype)(x)
+        dt = nn.softplus(jnp.log(jnp.exp(0.01) - 1) + nn.Dense(channels)(nn.Dense(1)(x)))
 
-        return (y + jnp.conjugate(y)).real
+        # ZOH discretization
+        At = jnp.exp(einops.einsum(A, dt, "c s, l c -> l c s"))
+        Bt = einops.einsum(At - 1, B, 1 / A, "l c s, l s, c s -> l c s")
+        Ct = einops.rearrange(C, "l s -> l 1 s")
+        ut = einops.einsum(Bt, x, "l c s, l c -> l c s")
+        return At, ut, Ct
 
 
 class S4(S6):
-    def get_ssm_params(self, x: jax.Array):
+    def get_discretized_ssm(self, x: jax.Array) -> tuple[jax.Array, jax.Array, jax.Array]:
         lenght, channels = x.shape
-        state_dim = self.state_dim // 2 if self.complex else self.state_dim
-
-        if self.complex:
-            lognegAreal, Aimag = self.param("A", init_A_S4D, "lin", channels, self.state_dim)
-            A = -jnp.exp(lognegAreal) + 1j * Aimag
-        else:
-            lognegAreal, A_imag = self.param("A", self.init_A_S4D, "real", channels)
-            A = -jnp.exp(lognegAreal)
-
+        lognegAreal, Aimag = self.param("A", self.init_A_S4D, channels)
+        A = -jnp.exp(lognegAreal) + (1j * Aimag if self.complex else 0.0)
         B = self.param("B", nn.initializers.ones, A.shape, A.dtype)
-        C = self.param("C", nn.initializers.ones, A.shape, A.dtype)
-        dt0 = jnp.log(jnp.exp(1 / self.sample_rate) - 1)  # inverse of softplus
+        C = self.param("C", nn.initializers.uniform(1), A.shape, A.dtype)
+        dt0 = jnp.log(jnp.exp(0.01) - 1)  # inverse of softplus
         dt = nn.softplus(self.param("dt", nn.initializers.constant(dt0), (channels,)))
 
-        # ZOH discretization and prepare scan inputs
-        At = jnp.exp(jnp.einsum("cs, c->cs", A, dt))
-        ut = jnp.einsum("cs, cs, cs, lc->lcs", (At - 1), 1 / A, B, x)
-        At = jnp.broadcast_to(At, (lenght, channels, state_dim))
-        Ct = jnp.broadcast_to(C, (lenght, channels, state_dim))
-
+        # ZOH discretization
+        At = jnp.exp(einops.einsum(A, dt, "c s, c -> c s"))
+        Bt = einops.einsum(At - 1, B, 1 / A, "c s, c s, c s -> c s")
+        ut = einops.einsum(Bt, x, "c s, l c -> l c s")
+        At = einops.repeat(At, "c s -> l c s", l=lenght)
+        Ct = einops.repeat(C, "c s -> l c s", l=lenght)
         return At, ut, Ct
 
 
@@ -128,6 +97,9 @@ class MambaBlock(nn.Module):
 
     @nn.compact
     def __call__(self, x: jax.Array):
+        # independent convolutions for each channel
+        Conv = nn.vmap(nn.Conv, variable_axes={"params": 0}, split_rngs={"params": True})
+
         lenght, channels = x.shape
         h = nn.RMSNorm()(x)
 
@@ -137,7 +109,9 @@ class MambaBlock(nn.Module):
 
         # residual path
         h = nn.Dense(2 * channels, use_bias=False)(h)
-        h = nn.Conv(2 * channels, kernel_size=(self.state_dim,), padding="CAUSAL")(h)
+        h = einops.rearrange(h, "l c -> c l 1")
+        h = Conv(1, kernel_size=(self.state_dim,), padding="CAUSAL")(h)
+        h = einops.rearrange(h, "c l 1 -> l c")
         h = nn.gelu(h)
         h = S6(self.state_dim, self.complex)(h)
         h = nn.Dense(channels, use_bias=False)(h * g)
