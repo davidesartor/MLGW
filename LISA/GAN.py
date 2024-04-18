@@ -74,7 +74,7 @@ class Down(nn.Module):
         return x
     
 class Generator(nn.Module):
-    def __init__(self, in_channels, num_latent_variables, length, base_channels=64, num_parameters=3):
+    def __init__(self, in_channels, num_latent_variables, length=1000, base_channels=64, num_parameters=3):
         super(Generator, self).__init__()
         
         # Initial convolution block
@@ -113,7 +113,7 @@ class Generator(nn.Module):
         return out
 
 class Discriminator(nn.Module):
-    def __init__(self, input_channels, num_latent_variables, base_channels=64):
+    def __init__(self, input_channels, num_latent_variables, length=1000, num_parameters=3, base_channels=64):
         super(Discriminator, self).__init__()
 
         # Initial convolution block
@@ -129,7 +129,7 @@ class Discriminator(nn.Module):
 
         # Flatten and Dense layers
         self.flatten = nn.Flatten()
-        self.dense1 = nn.Linear(base_channels * 8 * (1000 // 2 // 2 // 2) + 3, 128)
+        self.dense1 = nn.Linear(base_channels * 8 * (length // 2 // 2 // 2) + num_parameters, 128)
 
         self.dense_leaky_relu = nn.LeakyReLU(0.2)
         self.layer_norm = nn.LayerNorm(128)
