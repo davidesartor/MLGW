@@ -40,7 +40,7 @@ class ResBlock(nn.Module):
         self.conv2 = nn.Conv1d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
         self.conv3 = nn.Conv1d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
         
-        self.leaky_relu = nn.LeakyReLU(0.2, inplace=True)
+        self.leaky_relu = nn.LeakyReLU(0.2)
 
         self.process1 = CIN(in_channels, num_latent_variables) if not no_norm else nn.Identity()
         self.process2 = CIN(out_channels, num_latent_variables) if not no_norm else nn.Identity()
@@ -62,7 +62,7 @@ class Down(nn.Module):
     def __init__(self, in_channels, out_channels, num_latent_variables):
         super(Down, self).__init__()
         self.conv = nn.Conv1d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
-        self.relu = nn.LeakyReLU(0.2, inplace=True)
+        self.relu = nn.LeakyReLU(0.2)
         self.avg_pool = nn.AvgPool1d(kernel_size=2, stride=2)
         self.res_block = ResBlock(in_channels=out_channels, out_channels=out_channels, num_latent_variables=num_latent_variables, no_norm=False)
 
@@ -79,7 +79,7 @@ class Generator(nn.Module):
         
         # Initial convolution block
         self.init_conv = nn.Conv1d(in_channels, base_channels, kernel_size=3, stride=1, padding=1)
-        self.init_relu = nn.LeakyReLU(0.2, inplace=True)
+        self.init_relu = nn.LeakyReLU(0.2)
         
         # ResBlock without normalization
         self.res_block_no_norm = ResBlock(base_channels, base_channels, num_latent_variables, no_norm=True)
@@ -118,7 +118,7 @@ class Discriminator(nn.Module):
 
         # Initial convolution block
         self.init_conv = nn.Conv1d(input_channels, base_channels, kernel_size=3, stride=1, padding=1)
-        self.init_leaky_relu = nn.LeakyReLU(0.2, inplace=True)
+        self.init_leaky_relu = nn.LeakyReLU(0.2)
 
         self.res_block_no_norm = ResBlock(base_channels, base_channels, num_latent_variables, no_norm=True)
 
