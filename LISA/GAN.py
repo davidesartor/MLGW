@@ -40,7 +40,7 @@ class ResBlock(nn.Module):
         self.conv2 = nn.Conv1d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
         self.conv3 = nn.Conv1d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
         
-        self.leaky_relu = nn.LeakyReLU(0.2)
+        self.leaky_relu = nn.LeakyReLU(0.2, inplace=True)
 
         self.process1 = CIN(in_channels, num_latent_variables) if not no_norm else nn.Identity()
         self.process2 = CIN(out_channels, num_latent_variables) if not no_norm else nn.Identity()
@@ -62,7 +62,7 @@ class Down(nn.Module):
     def __init__(self, in_channels, out_channels, num_latent_variables):
         super(Down, self).__init__()
         self.conv = nn.Conv1d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
-        self.relu = nn.LeakyReLU(0.2)
+        self.relu = nn.LeakyReLU(0.2, inplace=True)
         self.avg_pool = nn.AvgPool1d(kernel_size=2, stride=2)
         self.res_block = ResBlock(in_channels=out_channels, out_channels=out_channels, num_latent_variables=num_latent_variables, no_norm=False)
 
@@ -74,12 +74,12 @@ class Down(nn.Module):
         return x
     
 class Generator(nn.Module):
-    def __init__(self, in_channels, num_latent_variables, length=1000, base_channels=64, num_parameters=3):
+    def __init__(self, in_channels, num_latent_variables, length, base_channels=64, num_parameters=3):
         super(Generator, self).__init__()
         
         # Initial convolution block
         self.init_conv = nn.Conv1d(in_channels, base_channels, kernel_size=3, stride=1, padding=1)
-        self.init_relu = nn.LeakyReLU(0.2)
+        self.init_relu = nn.LeakyReLU(0.2, inplace=True)
         
         # ResBlock without normalization
         self.res_block_no_norm = ResBlock(base_channels, base_channels, num_latent_variables, no_norm=True)
@@ -113,12 +113,12 @@ class Generator(nn.Module):
         return out
 
 class Discriminator(nn.Module):
-    def __init__(self, input_channels, num_latent_variables, length=1000, num_parameters=3, base_channels=64):
+    def __init__(self, input_channels, num_latent_variables, base_channels=64):
         super(Discriminator, self).__init__()
 
         # Initial convolution block
         self.init_conv = nn.Conv1d(input_channels, base_channels, kernel_size=3, stride=1, padding=1)
-        self.init_leaky_relu = nn.LeakyReLU(0.2)
+        self.init_leaky_relu = nn.LeakyReLU(0.2, inplace=True)
 
         self.res_block_no_norm = ResBlock(base_channels, base_channels, num_latent_variables, no_norm=True)
 
@@ -129,7 +129,7 @@ class Discriminator(nn.Module):
 
         # Flatten and Dense layers
         self.flatten = nn.Flatten()
-        self.dense1 = nn.Linear(base_channels * 8 * (length // 2 // 2 // 2) + num_parameters, 128)
+        self.dense1 = nn.Linear(base_channels * 8 * (1000 // 2 // 2 // 2) + 3, 128)
 
         self.dense_leaky_relu = nn.LeakyReLU(0.2)
         self.layer_norm = nn.LayerNorm(128)

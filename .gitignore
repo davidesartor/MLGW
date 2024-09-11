@@ -1,1 +1,4 @@
 **/__pycache__
+**/wandb
+**/checkpoints
+**/lightning_logs
